@@ -1,4 +1,4 @@
-# ASCII Tree + Full File Contents
+# cb2md (codebase to markdown) - ASCII Tree + Full File Contents Generator
 
 A command-line tool that:
 
@@ -17,8 +17,8 @@ A command-line tool that:
 1. **Clone** the repository:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/REPO_NAME.git
-cd REPO_NAME
+git clone git@github.com:pekhota/cb2md.git
+cd cb2md
 ```
 
 2. **Build or Install**:
@@ -34,13 +34,13 @@ go install
 3. **Run**:
 
 ```bash
-./ascii-tree /path/to/directory
+./cb2md /path/to/directory
 ```
 
 ## Usage
 
 ```bash
-./ascii-tree [OPTIONS] /path/to/directory
+./cb2md [OPTIONS] /path/to/directory
 ```
 
 ### Flags
@@ -52,10 +52,10 @@ go install
 
 ```bash
 # Print ASCII tree to stdout
-./ascii-tree ./my-project
+./cb2md ./my-project
 
 # Print ASCII tree + file contents in Markdown to tree.md
-./ascii-tree ./my-project -ignore=.ignore -o=tree.md
+./cb2md ./my-project -ignore=.ignore -o=tree.md
 ```
 
 ## .ignore File
@@ -78,4 +78,4 @@ Feel free to open issues or pull requests if you find any bugs, or have suggesti
 
 ## License
 
-This project is available under the [MIT License](./LICENSE) (or any license of your choice).
+This project is available under the [MIT License](./LICENSE).
