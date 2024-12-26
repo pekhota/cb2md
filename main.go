@@ -19,9 +19,16 @@ type Node struct {
 	Children []*Node
 }
 
-// We collect the relative paths of included files here
-// so we can later print their contents.
+// includedFiles holds only those files we want to show in the “Full File List” section (i.e., we print their contents).
 var includedFiles []string
+
+// skipContentPatterns: these file types appear in the ASCII tree
+// but will NOT be added to includedFiles, so we do not print their contents.
+// Feel free to expand this list with other binary file types.
+var skipContentPatterns = []string{
+	"*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg", "*.webp",
+	"package-lock.json", "composer.lock",
+}
 
 func main() {
 	var ignoreFile string
@@ -44,7 +51,7 @@ func main() {
 		log.Fatalf("Error getting absolute path: %v\n", err)
 	}
 
-	// Load ignore patterns (if any)
+	// Load ignore patterns (if any) from the .ignore file
 	ignorePatterns := loadIgnorePatterns(filepath.Join(absRoot, ignoreFile))
 
 	// Maintain a map of visited directories (real paths) to prevent loops
@@ -135,8 +142,8 @@ func buildTree(basePath, currentPath string, ignorePatterns []string, visited ma
 		IsDir: info.IsDir(),
 	}
 
-	// If directory, read contents
 	if info.IsDir() {
+		// If it's a directory, read its contents
 		entries, err := os.ReadDir(currentPath)
 		if err != nil {
 			return nil, err
@@ -145,7 +152,7 @@ func buildTree(basePath, currentPath string, ignorePatterns []string, visited ma
 		for _, e := range entries {
 			name := e.Name()
 
-			// Skip hidden
+			// Skip hidden (files/folders starting with ".")
 			if strings.HasPrefix(name, ".") {
 				continue
 			}
@@ -156,7 +163,7 @@ func buildTree(basePath, currentPath string, ignorePatterns []string, visited ma
 				return nil, err
 			}
 
-			// Check ignore patterns
+			// Check .ignore patterns to see if we skip it entirely
 			if matchesAnyPattern(relPath, ignorePatterns) {
 				continue
 			}
@@ -171,18 +178,22 @@ func buildTree(basePath, currentPath string, ignorePatterns []string, visited ma
 			}
 		}
 
-		// Sort children so output is predictable
+		// Sort children so the output is predictable
 		sort.Slice(node.Children, func(i, j int) bool {
 			return node.Children[i].Name < node.Children[j].Name
 		})
 
 	} else {
-		// It's a file, so let's add it to includedFiles
+		// It's a file, so let's check if we skip content
 		relPath, err := filepath.Rel(basePath, currentPath)
 		if err != nil {
 			return nil, err
 		}
-		includedFiles = append(includedFiles, relPath)
+
+		// If this file doesn't match skipContentPatterns, we'll include it in the Full File List
+		if !matchesAnyPattern(relPath, skipContentPatterns) {
+			includedFiles = append(includedFiles, relPath)
+		}
 	}
 
 	return node, nil

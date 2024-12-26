@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Check out the repository code
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      # Step 2: Set up Go (choose your version)
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.20"  # or whichever version you need
+
+      # Step 3: Download modules
+      - name: Install dependencies
+        run: go mod download
+
+      # Step 4: Run linters (golangci-lint)
+      # Using the official GolangCI-Lint action
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          args: --timeout 5m
+
+      # Step 5: Run tests
+      - name: Run tests
+        run: go test -v ./...
+
+      # (Optional) Step 6: Generate and show coverage
+      # Uncomment this section if you want coverage output in the logs
+      - name: Test coverage
+        run: |
+          go test -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
