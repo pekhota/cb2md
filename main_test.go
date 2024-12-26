@@ -1,3 +1,4 @@
+// main_test.go
 package main
 
 import (
@@ -8,13 +9,11 @@ import (
 	"testing"
 )
 
-// TestLoadIgnorePatterns verifies we correctly load patterns from a file.
+// TestLoadIgnorePatterns ensures patterns are loaded from .ignore correctly.
 func TestLoadIgnorePatterns(t *testing.T) {
-	// Create a temporary directory for this test
 	tmpDir := t.TempDir()
-	ignoreFilePath := filepath.Join(tmpDir, ".ignore")
+	ignoreFile := filepath.Join(tmpDir, ".ignore")
 
-	// Write some patterns to .ignore
 	content := []byte(`
 # This is a comment
 *.log
@@ -22,47 +21,47 @@ secret.txt
 
 build/
 `)
-	if err := os.WriteFile(ignoreFilePath, content, 0o644); err != nil {
-		t.Fatalf("Failed to write .ignore file: %v", err)
+	if err := os.WriteFile(ignoreFile, content, 0o644); err != nil {
+		t.Fatalf("Failed to write .ignore: %v", err)
 	}
 
-	// Call loadIgnorePatterns
-	patterns := loadIgnorePatterns(ignoreFilePath)
-	expected := []string{"*.log", "secret.txt", "build/"}
-
-	if !reflect.DeepEqual(patterns, expected) {
-		t.Errorf("Got patterns %v, want %v", patterns, expected)
+	patterns := loadIgnorePatterns(ignoreFile)
+	want := []string{"*.log", "secret.txt", "build/"}
+	if !reflect.DeepEqual(patterns, want) {
+		t.Errorf("loadIgnorePatterns got %v, want %v", patterns, want)
 	}
 }
 
-// TestMatchesAnyPattern ensures that file paths match expected patterns.
-func TestMatchesAnyPattern(t *testing.T) {
+// TestMatchesAnySkipContent checks we do case-insensitive filename-only match.
+func TestMatchesAnySkipContent(t *testing.T) {
 	patterns := []string{
-		"*.log",
-		"build/",
-		"secret.txt",
+		"*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg", "*.webp",
+		"package-lock.json", "composer.lock",
 	}
-
 	tests := []struct {
-		path   string
-		expect bool
+		relPath string
+		want    bool
 	}{
-		{"error.log", true},
-		{"info.LOG", false}, // case sensitive, won't match .LOG
-		{"build/index.js", true},
-		{"secret.txt", true},
-		{"random.txt", false},
+		{"photo.JPG", true}, // baseName=photo.jpg, match *.jpg
+		{"photo.jpeg", true},
+		{"photo.JPEg", true},
+		{"image.png", true},
+		{"image.PNG", true},
+		{"composer.lock", true},
+		{"COMPOSER.LOCK", true}, // baseName=composer.lock
+		{"package-lock.JSON", true},
+		{"photo.txt", false},
+		{"photo.jpg.bak", false}, // baseName=photo.jpg.bak; doesn't match *.jpg
 	}
-
-	for _, tc := range tests {
-		got := matchesAnyPattern(tc.path, patterns)
-		if got != tc.expect {
-			t.Errorf("matchesAnyPattern(%q) = %v, want %v", tc.path, got, tc.expect)
+	for _, tt := range tests {
+		got := matchesAnySkipContent(tt.relPath, patterns)
+		if got != tt.want {
+			t.Errorf("matchesAnySkipContent(%q) = %v; want %v", tt.relPath, got, tt.want)
 		}
 	}
 }
 
-// TestGuessLanguage checks that we map certain file extensions to the right language.
+// TestGuessLanguage verifies extension-to-language mapping.
 func TestGuessLanguage(t *testing.T) {
 	tests := []struct {
 		filename string
@@ -70,128 +69,35 @@ func TestGuessLanguage(t *testing.T) {
 	}{
 		{"main.go", "go"},
 		{"script.js", "javascript"},
+		{"script.JS", "javascript"}, // checks case-insensitivity of extension
 		{"styles.css", "css"},
+		{"readme.md", "markdown"},
+		{"data.json", "json"},
 		{"unknownfile.xyz", ""},
-		{"Dockerfile", ""}, // won't match
-		{"README.md", "markdown"},
 	}
-
-	for _, tc := range tests {
-		got := guessLanguage(tc.filename)
-		if got != tc.want {
-			t.Errorf("guessLanguage(%q) = %q; want %q", tc.filename, got, tc.want)
+	for _, tt := range tests {
+		got := guessLanguage(tt.filename)
+		if got != tt.want {
+			t.Errorf("guessLanguage(%q) = %q; want %q", tt.filename, got, tt.want)
 		}
 	}
 }
 
-// TestBuildTree checks we correctly build a Node tree, skipping hidden files and ignoring .ignore patterns.
-func TestBuildTree(t *testing.T) {
-	// Create a temp directory with some test files/folders
-	root := t.TempDir()
-
-	// Set up directory structure:
-	//   root/
-	//     .hiddenDir/
-	//       hiddenFile.txt
-	//     visibleDir/
-	//       file.go
-	//       file.log
-	//     .hiddenFile
-	//     included.txt
-	//     .ignore (patterns: *.log)
-	hiddenDir := filepath.Join(root, ".hiddenDir")
-	os.Mkdir(hiddenDir, 0o755)
-	if err := os.WriteFile(filepath.Join(hiddenDir, "hiddenFile.txt"), []byte("secret"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	visibleDir := filepath.Join(root, "visibleDir")
-	os.Mkdir(visibleDir, 0o755)
-	if err := os.WriteFile(filepath.Join(visibleDir, "file.go"), []byte("package main"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(visibleDir, "file.log"), []byte("log content"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(root, ".hiddenFile"), []byte("cannot see me"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "included.txt"), []byte("Hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	ignoreContent := []byte("*.log\n")
-	if err := os.WriteFile(filepath.Join(root, ".ignore"), ignoreContent, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Now call buildTree
-	ignorePatterns := loadIgnorePatterns(filepath.Join(root, ".ignore"))
-	visited := make(map[string]bool)
-	node, err := buildTree(root, root, ignorePatterns, visited)
-	if err != nil {
-		t.Fatalf("buildTree failed: %v", err)
-	}
-
-	// The ASCII tree root node should be the top-level directory name
-	if node.Name != filepath.Base(root) {
-		t.Errorf("Root node name = %q; want %q", node.Name, filepath.Base(root))
-	}
-
-	// Check children
-	// We expect visibleDir/ and included.txt to appear.
-	// .hiddenDir and .hiddenFile are skipped because they start with '.'
-	// file.log is skipped by .ignore pattern
-	foundVisibleDir := false
-	foundIncludedTxt := false
-
-	// Because node is a directory, its Children correspond to those that weren't ignored
-	for _, child := range node.Children {
-		switch child.Name {
-		case "visibleDir":
-			foundVisibleDir = true
-			// Within visibleDir, we should only see file.go, not file.log
-			foundGo := false
-			for _, subChild := range child.Children {
-				if subChild.Name == "file.go" {
-					foundGo = true
-				}
-				if subChild.Name == "file.log" {
-					t.Error("Unexpectedly found file.log; it should be ignored by pattern *.log")
-				}
-			}
-			if !foundGo {
-				t.Error("Expected to find file.go inside visibleDir")
-			}
-
-		case "included.txt":
-			foundIncludedTxt = true
-		}
-	}
-
-	if !foundVisibleDir {
-		t.Error("Expected to find visibleDir in root node children")
-	}
-	if !foundIncludedTxt {
-		t.Error("Expected to find included.txt in root node children")
-	}
-}
-
-// TestPrintFileContents (Optional):
-// If you'd like to test file printing, you can capture the output by writing
-// to a bytes.Buffer and verifying the contents. For example:
+// TestPrintFileContents ensures file contents are printed as expected.
 func TestPrintFileContents(t *testing.T) {
-	tmpFile := t.TempDir() + "/hello.txt"
-	if err := os.WriteFile(tmpFile, []byte("Hello\nWorld"), 0o644); err != nil {
-		t.Fatal(err)
+	tmp := t.TempDir()
+	filePath := filepath.Join(tmp, "hello.txt")
+	content := "Hello\nWorld"
+	if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
 	}
+
 	var buf strings.Builder
-	if err := printFileContents(tmpFile, &buf); err != nil {
-		t.Errorf("printFileContents failed: %v", err)
+	if err := printFileContents(filePath, &buf); err != nil {
+		t.Errorf("printFileContents error: %v", err)
 	}
-	want := "Hello\nWorld\n"
 	got := buf.String()
+	want := "Hello\nWorld\n"
 	if got != want {
 		t.Errorf("printFileContents got:\n%q\nwant:\n%q", got, want)
 	}

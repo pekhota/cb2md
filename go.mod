@@ -1,3 +1,3 @@
 module github.com/pekhota/cb2md
 
-go 1.22.5
+go 1.22
