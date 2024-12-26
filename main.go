@@ -19,16 +19,18 @@ type Node struct {
 	Children []*Node
 }
 
-// includedFiles holds only those files we want to show in the “Full File List” section (i.e., we print their contents).
+// includedFiles holds only those files we want to show in the “Full File List” section.
 var includedFiles []string
 
-// skipContentPatterns: these file types appear in the ASCII tree
-// but will NOT be added to includedFiles, so we do not print their contents.
-// Feel free to expand this list with other binary file types.
+// skipContentPatterns: these appear in the ASCII tree but won't show in the file list.
+// (Images, lock files, etc.) We use case-insensitive matching on the *base filename*.
 var skipContentPatterns = []string{
 	"*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg", "*.webp",
 	"package-lock.json", "composer.lock",
 }
+
+// We'll store the absolute path to the output file so we can skip it in the directory walk.
+var absOutFile string
 
 func main() {
 	var ignoreFile string
@@ -45,10 +47,19 @@ func main() {
 	// Root directory to scan
 	rootDir := flag.Arg(0)
 
-	// Convert to absolute path
+	// Convert rootDir to absolute path
 	absRoot, err := filepath.Abs(rootDir)
 	if err != nil {
 		log.Fatalf("Error getting absolute path: %v\n", err)
+	}
+
+	// If user specified an output file, get its absolute path.
+	// We'll skip it during our directory walk so it doesn't get re-included.
+	if outFile != "" {
+		absOutFile, err = filepath.Abs(outFile)
+		if err != nil {
+			log.Fatalf("Error getting absolute output file path: %v\n", err)
+		}
 	}
 
 	// Load ignore patterns (if any) from the .ignore file
@@ -69,7 +80,8 @@ func main() {
 	// Determine output destination (stdout or file)
 	var w io.Writer = os.Stdout
 	if outFile != "" {
-		f, err := os.Create(outFile)
+		// Explicitly open with O_TRUNC to overwrite if it exists
+		f, err := os.OpenFile(outFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 		if err != nil {
 			log.Fatalf("Error creating output file '%s': %v", outFile, err)
 		}
@@ -126,6 +138,11 @@ func buildTree(basePath, currentPath string, ignorePatterns []string, visited ma
 		return nil, err
 	}
 
+	// Skip if it's our output file
+	if absOutFile != "" && realPath == absOutFile {
+		return nil, nil
+	}
+
 	// If we've already seen this real path, skip
 	if visited[realPath] {
 		return nil, nil
@@ -163,7 +180,7 @@ func buildTree(basePath, currentPath string, ignorePatterns []string, visited ma
 				return nil, err
 			}
 
-			// Check .ignore patterns to see if we skip it entirely
+			// Check .ignore patterns (full path, case-sensitive by default).
 			if matchesAnyPattern(relPath, ignorePatterns) {
 				continue
 			}
@@ -172,7 +189,6 @@ func buildTree(basePath, currentPath string, ignorePatterns []string, visited ma
 			if err != nil {
 				return nil, err
 			}
-			// childNode could be nil if recursion returned early (e.g. repeated real path).
 			if childNode != nil {
 				node.Children = append(node.Children, childNode)
 			}
@@ -184,14 +200,14 @@ func buildTree(basePath, currentPath string, ignorePatterns []string, visited ma
 		})
 
 	} else {
-		// It's a file, so let's check if we skip content
+		// It's a file, so let's see if we skip content
 		relPath, err := filepath.Rel(basePath, currentPath)
 		if err != nil {
 			return nil, err
 		}
 
-		// If this file doesn't match skipContentPatterns, we'll include it in the Full File List
-		if !matchesAnyPattern(relPath, skipContentPatterns) {
+		// If this file doesn't match skipContentPatterns (case-insensitive), we add it to includedFiles
+		if !matchesAnySkipContent(relPath, skipContentPatterns) {
 			includedFiles = append(includedFiles, relPath)
 		}
 	}
@@ -247,11 +263,26 @@ func loadIgnorePatterns(ignorePath string) []string {
 	return patterns
 }
 
-// matchesAnyPattern checks if relPath matches any pattern in patterns.
+// matchesAnyPattern checks if relPath matches any pattern (case-sensitive, using the entire path).
+// Used for .ignore patterns so users can skip entire directories, etc.
 func matchesAnyPattern(relPath string, patterns []string) bool {
 	for _, p := range patterns {
-		match, err := filepath.Match(p, relPath)
-		if err == nil && match {
+		matched, err := filepath.Match(p, relPath)
+		if err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesAnySkipContent checks if the base name of relPath matches any skip-content pattern (case-insensitive).
+// e.g., "photo.GIF" -> base name is "photo.gif", we match "photo.gif" against patterns like "*.gif".
+func matchesAnySkipContent(relPath string, patterns []string) bool {
+	baseName := strings.ToLower(filepath.Base(relPath)) // e.g. "photo.gif"
+	for _, p := range patterns {
+		p = strings.ToLower(p) // e.g. "*.gif"
+		matched, err := filepath.Match(p, baseName)
+		if err == nil && matched {
 			return true
 		}
 	}

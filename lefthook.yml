@@ -1,0 +1,23 @@
+pre-commit:
+  commands:
+    # 1. Code formatting check
+    fmt:
+      run: |
+        echo "Running 'go fmt' check..."
+        # 'go fmt' doesn't provide a non-zero exit if it changes files, so you can do a diff check:
+        go fmt ./...
+        # Optionally, you could do something like:
+        # git diff --exit-code
+        # to fail if there are uncommitted changes after running go fmt.
+
+    # 2. Lint
+    lint:
+      run: |
+        echo "Running 'golangci-lint'..."
+        golangci-lint run
+
+    # 3. Tests
+    test:
+      run: |
+        echo "Running 'go test'..."
+        go test -v ./...
